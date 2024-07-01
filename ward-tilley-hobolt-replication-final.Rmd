@@ -1397,7 +1397,7 @@ combined %>%
 # 2015 boundaries, (otherwise you have to buy from OS), but probably doesn't matter
 
 # read in postcode shapefile
-postcode_shape <- st_read("postcode_boundaries/Sectors.shp")
+postcode_shape <- st_read("Sectors.shp")
 
 # NOTE: these are slightly out of date, and only approximate polygons
 
@@ -1428,7 +1428,7 @@ merged_data$totalSFPlog <- log1p(merged_data$totalSFP)
 ```
 
 ```{r}
-pc_shape <- st_read("postcode_boundaries/Sectors.shp")
+pc_shape <- st_read("Sectors.shp")
 
 # British nat grid projection
 pc_shape <- st_transform(pc_shape, 27700)
