@@ -1,0 +1,2671 @@
+---
+title: "Replication file for 'Does regional spending affect support for the EU?'"
+author: "Albert Ward, James Tilley and Sara B. Hobolt"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: lumen
+    highlight: textmate
+    df_print: paged
+    code_folding: hide
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+  markdown:
+    wrap: 72
+---
+
+<style>
+  /* Set maximum width for content */
+  body {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  
+  /* Set maximum width for figures */
+  .figure {
+    max-width: 700px;
+    margin: 0 auto;
+  }
+  
+  /* Set actual width of figures */
+  .figure img {
+    width: 400px;
+  }
+  
+  /* Adjust position of floating TOC */
+  .tocify {
+    position: fixed;
+    top: 5px; /* Adjust this value to increase or decrease the distance between the TOC and main content */
+    left: 200px;
+  }
+  
+  /* Left align TOC items */
+.tocify-item {
+    text-align: left;
+}
+
+/* Left align TOC item sub-items */
+.tocify-subitem {
+    text-align: left;
+}
+</style>
+
+<!-- output: -->
+<!--   prettydoc::html_pretty: -->
+<!--     theme: architect -->
+<!--     highlight: github -->
+<!--     toc: true -->
+
+<br>
+<br>
+
+# Setup 
+
+```{=html}
+<style> body {text-align: justify} </style>
+```
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE) # Set this to TRUE to show code.
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) # This hides some printed outputs
+```
+
+```{r}
+# Loading packages for later.
+
+library(tidyverse)
+library(sf)
+library(rstudioapi)
+
+# Plotting
+library(ggeffects)
+library(effects)
+
+# For reading dta files.
+library(haven)
+
+# For displaying model tables.
+library(modelsummary)
+library(gt)
+
+# Descriptives
+library(rmarkdown)
+
+# Maps / geocoding
+# library(maptools)
+library(maps)
+library(ggmap)
+library(rnaturalearthdata)
+# library(rgdal)
+library(sf)
+library(geosphere)
+library(cartogram)
+library(rmapshaper)
+library(proj4)
+
+# Multinomial logit
+library(nnet)
+
+# Hierarchical
+library(lme4)
+
+# Panel
+library(panelr)
+```
+
+```{r}
+# Set wd
+current_path = rstudioapi::getActiveDocumentContext()$path 
+setwd(dirname(current_path ))
+print( getwd() )
+
+# Wave 1 and 2
+combined <- read_sav("survey_w1-3_incld_spending_wide.sav")
+
+# # Wave 1 only
+# suffix_to_remove <- "_W2"
+
+# # Get the names of the dataframe columns that end with the specified suffix
+# column_names <- names(combined)
+# column_names_suffix <- grep(paste0(suffix_to_remove, "$"), column_names, value = TRUE)
+
+# # Remove the columns with the specified suffix
+# wave1 <- combined[, !(names(combined) %in% column_names_suffix)]
+
+options(scipen = 999)
+```
+
+```{r}
+# PC sector contextual information
+
+combined$ONS_urban_W1[combined$ONS_urban_W1 == 10] <- NA
+
+combined <- mutate(combined,
+  urban = case_when(
+    ONS_urban_W1 == 1 ~ 1,
+    ONS_urban_W1 == 2 | ONS_urban_W1 == 3 ~ 0
+  )
+)
+
+combined <- mutate(combined,
+  tfringe = case_when(
+    ONS_urban_W1 == 2 ~ 1,
+    ONS_urban_W1 == 1 | ONS_urban_W1 == 3 ~ 0
+  )
+)
+```
+
+<br>
+
+## Cleaning
+
+```{r}
+as.data.frame(table(combined$Publicspend2a_W1))
+combined$publicspend2_W1[combined$publicspend2_W1 == 8 | combined$publicspend2_W1 == 9] <- NA
+combined$Publicspend2a_W1[combined$Publicspend2a_W1 == 8 | combined$Publicspend2a_W1 == 9] <- NA
+
+# as.data.frame(table(combined$age_W1))
+combined <- mutate(combined,
+  ag18t24 = case_when(
+    age_W1 < 18 ~ 0,
+    age_W1 %in% 18:24 ~ 1,
+    age_W1 > 24 ~ 0,
+  )
+)
+
+# 25 to 39
+combined <- mutate(combined,
+  ag25t39 = case_when(
+    age_W1 < 25 ~ 0,
+    age_W1 %in% 25:39 ~ 1,
+    age_W1 > 39 ~ 0,
+  )
+)
+
+# 18 to 39
+combined <- mutate(combined,
+  ag18t39 = case_when(
+    age_W1 < 18 ~ 0,
+    age_W1 %in% 18:39 ~ 1,
+    age_W1 > 39 ~ 0,
+  )
+)
+
+# 40 to 64
+combined <- mutate(combined,
+  ag40t64 = case_when(
+    age_W1 < 40 ~ 0,
+    age_W1 %in% 40:64 ~ 1,
+    age_W1 > 64 ~ 0,
+  )
+)
+
+# 65 +
+combined <- mutate(combined,
+  agm64 = case_when(
+    age_W1 <= 64 ~ 0,
+    age_W1 > 64 ~ 1,
+  )
+)
+
+# as.data.frame(table(combined$profile_socialgrade_cie_W1))
+combined$profile_socialgrade_cie_W1[combined$profile_socialgrade_cie_W1 == 8] <- NA
+
+combined <- mutate(combined,
+  abc1 = case_when(
+    profile_socialgrade_cie_W1 <= 3 ~ 1,
+    is.na(profile_socialgrade_cie_W1) == T ~ NA_real_,
+    TRUE ~ 0,
+  )
+)
+
+combined$profile_education_level_W1[combined$profile_education_level_W1 == 19 | combined$profile_education_level_W1 == 20 | combined$profile_education_level_W1 == 98 | combined$profile_education_level_W1 == 99] <- NA
+
+combined <- mutate(combined,
+  sleaver = case_when(
+    profile_education_level_W1 == 1 ~ 0,
+    profile_education_level_W1 >= 2 & profile_education_level_W1 <= 14 ~ 1,
+    profile_education_level_W1 >= 15 ~ 0
+  )
+)
+
+combined <- mutate(combined,
+  degree = case_when(
+    profile_education_level_W1 == 1 ~ 0,
+    profile_education_level_W1 >= 2 & profile_education_level_W1 <= 14 ~ 0,
+    profile_education_level_W1 >= 15 ~ 1
+  )
+)
+
+combined$eurefid1_W2[combined$eurefid1_W2 == 99] <- NA
+combined$eurefid2_W2[combined$eurefid2_W2 == 99] <- NA
+
+# as.data.frame(table(combined$eurefid2_W1))
+combined <- mutate(combined,
+  leaver = case_when(
+    eurefid1_W1 == 1 ~ 1,
+    eurefid1_W1 == 2 | eurefid1_W1 == 3 ~ 0
+  )
+)
+
+combined <- mutate(combined,
+  remainer = case_when(
+    eurefid1_W1 == 2 ~ 1,
+    eurefid1_W1 == 1 | eurefid1_W1 == 3 ~ 0
+  )
+)
+
+# Factor variable - past vote
+combined <- mutate(combined,
+  brex_factor2 = case_when(
+    pastvote_EURef_W1 == 3 | pastvote_EURef_W1 == 4 ~ 0,
+    pastvote_EURef_W1 == 1 ~ 2,
+    pastvote_EURef_W1 == 2 ~ 1
+  ),
+  brex_factor2 = factor(brex_factor2,
+    levels = c(0, 1, 2),
+    labels = c("DK / DNV", "Leaver", "Remainer")
+  )
+)
+
+# Factor variable - past vote, excluding DNV
+combined <- mutate(combined,
+  brex_factor3 = case_when(
+    pastvote_EURef_W1 == 3 | pastvote_EURef_W1 == 4 ~ NA_real_,
+    pastvote_EURef_W1 == 1 ~ 1,
+    pastvote_EURef_W1 == 2 ~ 0
+  ),
+  brex_factor3 = factor(brex_factor3,
+    levels = c(0, 1),
+    labels = c("Leaver", "Remainer")
+  )
+)
+
+# Including closers
+combined <- mutate(combined,
+  leaver2 = case_when(
+    eurefid2_W1 == 1 ~ 1,
+    eurefid2_W1 == 2 | eurefid2_W1 == 3 ~ 0
+  )
+)
+
+combined <- mutate(combined,
+  remainer2 = case_when(
+    eurefid2_W1 == 2 ~ 1,
+    eurefid2_W1 == 1 | eurefid2_W1 == 3 ~ 0
+  )
+)
+
+# Brexit identity strength
+combined$Brexstrength_W1[combined$Brexstrength_W1 == 98 | combined$Brexstrength_W1 == 99] <- NA
+
+# Because eurefid1_W3 not provided
+combined <- mutate(combined,
+  eurefid1_W3 = case_when(
+    Brex3_W3 == 1 ~ 1, # Leaver
+    Brex3_W3 == 2 ~ 2, # Remainer
+    Brex3_W3 == 3 ~ 3 # Neither
+  )
+)
+
+combined <- mutate(combined,
+  Brex3c_W3 = case_when(
+    Brex3c_W3 == 1 ~ 1, # Leaver
+    Brex3c_W3 == 2 ~ 2, # Remainer
+    Brex3c_W3 == 3 ~ 3, # Neither
+    Brex3c_W3 == 4 ~ NA_real_
+  )
+)
+
+combined <- mutate(combined,
+  eurefid2_W3 = case_when(
+    Brex3_W3 == 1 ~ 1, # Leaver
+    Brex3_W3 == 2 ~ 2, # Remainer
+    Brex3_W3 == 3 | Brex3_W3 == 4 ~ Brex3c_W3
+  )
+)
+
+
+# PID
+
+# No closers
+combined <- mutate(combined,
+  con = case_when(
+    pid1_W2 == 1 ~ 1,
+    pid1_W2 == 8 ~ NA_real_,
+    TRUE ~ 0
+  )
+)
+
+combined <- mutate(combined,
+  noncon = case_when(
+    pid1_W2 == 1 ~ 0,
+    pid1_W2 == 8 ~ NA_real_,
+    pid1_W2 == 7 ~ 0,
+    TRUE ~ 1
+  )
+)
+
+# Factor variable
+combined <- mutate(combined,
+  part_factor = case_when(
+    pid1_W2 == 7 ~ 0,
+    pid1_W2 == 1 ~ 1,
+    pid1_W2 > 1 & pid1_W2 < 7 ~ 2
+  ),
+  part_factor = factor(part_factor,
+    levels = c(0, 1, 2),
+    labels = c("Neither", "Conservative", "Non-Conservative")
+  )
+)
+
+# Including closers
+combined <- mutate(combined,
+  con2 = case_when(
+    pid1_W2 == 1 | Pid1h_W2 == 1 ~ 1,
+    (pid1_W2 == 8 & Pid1h_W2 == 8) | (pid1_W2 == 7 & Pid1h_W2 == 8) ~ NA_real_,
+    TRUE ~ 0
+  )
+)
+
+combined <- mutate(combined,
+  noncon2 = case_when(
+    pid1_W2 == 1 | Pid1h_W2 == 1 ~ 0,
+    (pid1_W2 == 8 & Pid1h_W2 == 8) | (pid1_W2 == 7 & Pid1h_W2 == 8) ~ NA_real_,
+    (pid1_W2 == 8 & Pid1h_W2 == 7) | (pid1_W2 == 7 & Pid1h_W2 == 7) ~ 0,
+    TRUE ~ 1
+  )
+)
+
+# Log transformations
+
+# Summing time breakdowns for projects
+# PC-sector
+combined <- combined %>%
+  mutate(
+    totalSFPtim1pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim1pc_W1", "totalSFPvis2tim1pc_W1", "totalSFPvis3tim1pc_W1"))),
+    totalSFPtim2pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim2pc_W1", "totalSFPvis2tim2pc_W1", "totalSFPvis3tim2pc_W1"))),
+    totalSFPtim3pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim3pc_W1", "totalSFPvis2tim3pc_W1", "totalSFPvis3tim3pc_W1"))),
+    totalSFPtim4pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim4pc_W1", "totalSFPvis2tim4pc_W1", "totalSFPvis3tim4pc_W1"))),
+    totalSFPtim5pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim5pc_W1", "totalSFPvis2tim5pc_W1", "totalSFPvis3tim5pc_W1"))),
+    totalSFPtim6pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim6pc_W1", "totalSFPvis2tim6pc_W1", "totalSFPvis3tim6pc_W1"))),
+    totalSFPtim7pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim7pc_W1", "totalSFPvis2tim7pc_W1", "totalSFPvis3tim7pc_W1"))),
+    totalSFPtim8pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim8pc_W1", "totalSFPvis2tim8pc_W1", "totalSFPvis3tim8pc_W1"))),
+    totalSFPtim9pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim9pc_W1", "totalSFPvis2tim9pc_W1", "totalSFPvis3tim9pc_W1"))),
+    totalSFPtim10pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim10pc_W1", "totalSFPvis2tim10pc_W1", "totalSFPvis3tim10pc_W1"))),
+    totalSFPtim11pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim11pc_W1", "totalSFPvis2tim11pc_W1", "totalSFPvis3tim11pc_W1"))),
+    totalSFPtim12pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim12pc_W1", "totalSFPvis2tim12pc_W1", "totalSFPvis3tim12pc_W1"))),
+    totalSFPtim13pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim13pc_W1", "totalSFPvis2tim13pc_W1", "totalSFPvis3tim13pc_W1"))),
+    totalSFPtim14pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim14pc_W1", "totalSFPvis2tim14pc_W1", "totalSFPvis3tim14pc_W1"))),
+    totalSFPtim15pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim15pc_W1", "totalSFPvis2tim15pc_W1", "totalSFPvis3tim15pc_W1"))),
+    totalSFPtim16pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim16pc_W1", "totalSFPvis2tim16pc_W1", "totalSFPvis3tim16pc_W1"))),
+    totalSFPtim17pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim17pc_W1", "totalSFPvis2tim17pc_W1", "totalSFPvis3tim17pc_W1"))),
+    totalSFPtim18pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim18pc_W1", "totalSFPvis2tim18pc_W1", "totalSFPvis3tim18pc_W1"))),
+    totalSFPtim19pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim19pc_W1", "totalSFPvis2tim19pc_W1", "totalSFPvis3tim19pc_W1"))),
+    totalSFPtim20pc_W1 = rowSums(dplyr::select(., c("totalSFPvis1tim20pc_W1", "totalSFPvis2tim20pc_W1", "totalSFPvis3tim20pc_W1"))),
+    totalRDPtim1pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim1pc_W1", "totalRDPvis2tim1pc_W1", "totalRDPvis3tim1pc_W1"))),
+    totalRDPtim2pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim2pc_W1", "totalRDPvis2tim2pc_W1", "totalRDPvis3tim2pc_W1"))),
+    totalRDPtim3pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim3pc_W1", "totalRDPvis2tim3pc_W1", "totalRDPvis3tim3pc_W1"))),
+    totalRDPtim4pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim4pc_W1", "totalRDPvis2tim4pc_W1", "totalRDPvis3tim4pc_W1"))),
+    totalRDPtim5pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim5pc_W1", "totalRDPvis2tim5pc_W1", "totalRDPvis3tim5pc_W1"))),
+    totalRDPtim6pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim6pc_W1", "totalRDPvis2tim6pc_W1", "totalRDPvis3tim6pc_W1"))),
+    totalRDPtim7pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim7pc_W1", "totalRDPvis2tim7pc_W1", "totalRDPvis3tim7pc_W1"))),
+    totalRDPtim8pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim8pc_W1", "totalRDPvis2tim8pc_W1", "totalRDPvis3tim8pc_W1"))),
+    totalRDPtim9pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim9pc_W1", "totalRDPvis2tim9pc_W1", "totalRDPvis3tim9pc_W1"))),
+    totalRDPtim10pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim10pc_W1", "totalRDPvis2tim10pc_W1", "totalRDPvis3tim10pc_W1"))),
+    totalRDPtim11pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim11pc_W1", "totalRDPvis2tim11pc_W1", "totalRDPvis3tim11pc_W1"))),
+    totalRDPtim12pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim12pc_W1", "totalRDPvis2tim12pc_W1", "totalRDPvis3tim12pc_W1"))),
+    totalRDPtim13pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim13pc_W1", "totalRDPvis2tim13pc_W1", "totalRDPvis3tim13pc_W1"))),
+    totalRDPtim14pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim14pc_W1", "totalRDPvis2tim14pc_W1", "totalRDPvis3tim14pc_W1"))),
+    totalRDPtim15pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim15pc_W1", "totalRDPvis2tim15pc_W1", "totalRDPvis3tim15pc_W1"))),
+    totalRDPtim16pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim16pc_W1", "totalRDPvis2tim16pc_W1", "totalRDPvis3tim16pc_W1"))),
+    totalRDPtim17pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim17pc_W1", "totalRDPvis2tim17pc_W1", "totalRDPvis3tim17pc_W1"))),
+    totalRDPtim18pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim18pc_W1", "totalRDPvis2tim18pc_W1", "totalRDPvis3tim18pc_W1"))),
+    totalRDPtim19pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim19pc_W1", "totalRDPvis2tim19pc_W1", "totalRDPvis3tim19pc_W1"))),
+    totalRDPtim20pc_W1 = rowSums(dplyr::select(., c("totalRDPvis1tim20pc_W1", "totalRDPvis2tim20pc_W1", "totalRDPvis3tim20pc_W1")))
+  )
+```
+
+```{r}
+# Using exponential decay to weight: create linear variable
+
+# NOTES
+# Yet to start are weighted to their planned start year
+# Finished are weighted to the last year of spending
+# Ongoing are weighted to the survey year (2021)
+# Years past 2021 are assigned weight 0
+
+weights <- c(0.5^8, 0.5^7, 0.5^6, 0.5^5, 0.5^4, 0.5^3, 0.5^2, 0.5^1)
+
+# PC-sector
+combined <- combined %>%
+  mutate(weighted_spending_SFP = totalSFPtim1pc_W1 * weights[1] +
+    totalSFPtim2pc_W1 * weights[2] +
+    totalSFPtim3pc_W1 * weights[3] +
+    totalSFPtim4pc_W1 * weights[4] +
+    totalSFPtim6pc_W1 * weights[5] +
+    totalSFPtim6pc_W1 * weights[6] +
+    totalSFPtim7pc_W1 * weights[7] +
+    totalSFPtim8pc_W1 * weights[8] +
+    totalSFPtim9pc_W1 * weights[8] +
+    totalSFPtim10pc_W1 * weights[8] +
+    totalSFPtim11pc_W1 * weights[8] +
+    totalSFPtim12pc_W1 * weights[8] +
+    totalSFPtim13pc_W1 * weights[8] +
+    totalSFPtim14pc_W1 * weights[8] +
+    totalSFPtim15pc_W1 * weights[8] +
+    totalSFPtim16pc_W1 * weights[8] +
+    totalSFPtim17pc_W1 * 0 +
+    totalSFPtim18pc_W1 * 0 +
+    totalSFPtim19pc_W1 * 0 +
+    totalSFPtim20pc_W1 * 0)
+
+combined <- combined %>%
+  mutate(weighted_spending_RDP = totalRDPtim1pc_W1 * weights[1] +
+    totalRDPtim2pc_W1 * weights[2] +
+    totalRDPtim3pc_W1 * weights[3] +
+    totalRDPtim4pc_W1 * weights[4] +
+    totalRDPtim6pc_W1 * weights[5] +
+    totalRDPtim6pc_W1 * weights[6] +
+    totalRDPtim7pc_W1 * weights[7] +
+    totalRDPtim8pc_W1 * weights[8] +
+    totalRDPtim9pc_W1 * weights[8] +
+    totalRDPtim10pc_W1 * weights[8] +
+    totalRDPtim11pc_W1 * weights[8] +
+    totalRDPtim12pc_W1 * weights[8] +
+    totalRDPtim13pc_W1 * weights[8] +
+    totalRDPtim14pc_W1 * weights[8] +
+    totalRDPtim15pc_W1 * weights[8] +
+    totalRDPtim16pc_W1 * weights[8] +
+    totalRDPtim17pc_W1 * 0 +
+    totalRDPtim18pc_W1 * 0 +
+    totalRDPtim19pc_W1 * 0 +
+    totalRDPtim20pc_W1 * 0)
+```
+
+```{r}
+# Matching in local unemployment
+
+combined$profile_pcon_2010_new_W1[combined$profile_pcon_2010_new_W1 == 0 | combined$profile_pcon_2010_new_W1 == 998 | combined$profile_pcon_2010_new_W1 == 999] <- NA
+
+# Match in real constituencies
+resp_real_pcons <- read.csv("pcon_names.csv")
+combined <- left_join(combined, resp_real_pcons, by = "profile_pcon_2010_new_W1")
+
+# Read in unemployment data
+unemp <- read.csv("local_unemployment_march2021.csv")
+
+unemp$profile_pcon_2010_new_name_W1 <- as.character(unemp$profile_pcon_2010_new_name_W1)
+combined$profile_pcon_2010_new_name_W1 <- as.character(combined$profile_pcon_2010_new_name_W1)
+
+combined <- left_join(combined, unemp, by = "profile_pcon_2010_new_name_W1")
+
+# sum(is.na(combined$proportion_unemp))
+```
+
+<br>
+
+## Geocoding
+
+```{r}
+# Main method
+# Take the mean of the boundary centroids for all postcodes within a postcode sector as the centroid of that sector, and then calculate distance based on that
+
+# Read the OS Code-Point Open dataset
+codepo_path <- "codepo_gb.gpkg"
+codepo_data <- st_read(codepo_path, layer = "codepoint")
+
+# Find layers
+# codepo_layers <- st_layers("/Users/albertward/Downloads/codepo_gb.gpkg")
+# print(codepo_layers)
+
+# Process the data
+# Extract postcode sector from the full postcode
+# Modify the postcode sector extraction
+codepo_data <- codepo_data %>%
+  mutate(postcode_sector = str_replace(postcode, "([A-Z0-9]{2})$", ""))
+
+# Group by postcode sector and calculate the mean of the coordinates
+postcode_sector_centroids <- codepo_data %>%
+  group_by(postcode_sector) %>%
+  summarize(geometry = st_centroid(st_union(geometry)), .groups = "drop") %>%
+  st_as_sf()
+
+# REMOVE codepoint df from environment
+rm(codepo_data)
+gc()
+```
+
+```{r}
+# Do this en mass
+
+# Define function
+get_easting_northing <- function(postcode_sector_to_find) {
+  centroid_coords <- postcode_sector_centroids %>%
+    filter(postcode_sector == postcode_sector_to_find)
+
+  if (nrow(centroid_coords) == 0) {
+    return(list(easting = NA_real_, northing = NA_real_))
+  }
+
+  centroid_coords_xy <- st_coordinates(centroid_coords$geometry)
+
+  return(list(easting = centroid_coords_xy[1], northing = centroid_coords_xy[2]))
+}
+
+# Match in real pc from spss export
+resp_real_pc <- read.csv("resp_real_pc.csv")
+combined <- left_join(combined, resp_real_pc, by = "ID")
+# Recode NA
+combined$postcode_sector_coded_REAL_W1[combined$postcode_sector_coded_REAL_W1 == "__NA__"] <- NA
+
+# Final
+combined <- combined %>%
+  rowwise() %>%
+  mutate(easting_northing = list(get_easting_northing(postcode_sector_coded_REAL_W1))) %>%
+  unnest_wider(easting_northing) %>%
+  ungroup()
+
+# Do this for the dataframe with the list of all postcode sectors
+all_sectors <- read.csv("rdp_sfp_postcode_plus_summarystats.csv")
+
+# Final
+all_sectors <- all_sectors %>%
+  rowwise() %>%
+  mutate(easting_northing = list(get_easting_northing(postcode_sector))) %>%
+  unnest_wider(easting_northing) %>%
+  ungroup()
+```
+
+```{r}
+# Levelling up projects matching in
+
+luf1 <- read.csv("luf_round1.csv")
+
+crf <- read.csv("crf_successful_bids.csv")
+
+luf12 <- read.csv("luf_round1and2.csv")
+
+# Reshape the data into a long format
+long_luf1 <- luf1 %>%
+  pivot_longer(
+    cols = starts_with("postcode_sector") | starts_with("spending"),
+    names_to = c(".value", "set"),
+    names_pattern = "(.*?)(\\d+)$"
+  )
+
+# Summarize the spending for each postcode_sector
+new_luf1 <- long_luf1 %>%
+  group_by(postcode_sector) %>%
+  summarise(total_spending = sum(spending, na.rm = TRUE), .groups = "drop")
+
+
+# Reshape the data into a long format
+long_crf <- crf %>%
+  pivot_longer(
+    cols = starts_with("postcode_sector") | starts_with("spending"),
+    names_to = c(".value", "set"),
+    names_pattern = "(.*?)(\\d+)$"
+  )
+
+# Summarize the spending for each postcode_sector
+new_crf <- long_crf %>%
+  group_by(postcode_sector) %>%
+  summarise(total_spending = sum(spending, na.rm = TRUE), .groups = "drop")
+
+
+# Wave 3
+# Reshape the data into a long format
+long_luf12 <- luf12 %>%
+  pivot_longer(
+    cols = starts_with("postcode_sector") | starts_with("spending"),
+    names_to = c(".value", "set"),
+    names_pattern = "(.*?)(\\d+)$"
+  )
+
+# Summarize the spending for each postcode_sector
+new_luf12 <- long_luf12 %>%
+  group_by(postcode_sector) %>%
+  summarise(total_spending = sum(spending, na.rm = TRUE), .groups = "drop")
+
+
+# Merge with list of postcode sectors
+
+lvl_up <- read.csv("postcode_and_pop.csv")
+
+lvl_up <- lvl_up %>%
+  left_join(new_luf1, by = "postcode_sector") %>%
+  replace_na(list(total_spending = 0))
+
+lvl_up <- rename(lvl_up, total_spending_luf_round1 = total_spending)
+
+lvl_up <- lvl_up %>%
+  left_join(new_crf, by = "postcode_sector") %>%
+  replace_na(list(total_spending = 0))
+
+lvl_up <- rename(lvl_up, total_spending_crf = total_spending)
+
+lvl_up <- lvl_up %>%
+  left_join(new_luf12, by = "postcode_sector") %>%
+  replace_na(list(total_spending = 0))
+
+lvl_up <- rename(lvl_up, total_spending_luf_round1and2 = total_spending)
+
+# Match easting / northing for lvl_up dataframe
+
+all_sectors_temp <- all_sectors[, -c(2:137)]
+
+lvl_up <- left_join(lvl_up, all_sectors_temp, by = "postcode_sector")
+```
+
+```{r}
+# Matching dataframes for spending distance
+
+# RDP
+# NOTE: This function includes spending in the respondent's own postcode.
+find_nearby_postcodes <- function(df1, df2, distance_threshold) {
+  nearby_postcodes <- list()
+
+  # Remove rows with NA values in easting or northing in both dataframes
+  df1 <- df1[!is.na(df1$easting) & !is.na(df1$northing), ]
+  df2 <- df2[!is.na(df2$easting) & !is.na(df2$northing), ]
+
+  # Convert eastings and northings to spatial points and transform to lon/lat
+  coords_df1 <- st_as_sf(df1, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  coords_df2 <- st_as_sf(df2, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  for (i in 1:nrow(df1)) {
+    # Calculate distances
+    distances <- distVincentySphere(coords_df1[i, ], coords_df2)
+
+    # Filter postcodes within the threshold distance
+    nearby <- df2[distances <= distance_threshold, ]
+
+    # Sum the spending for the nearby postcodes
+    total_spending <- sum(nearby$totalRDP, na.rm = TRUE)
+
+    # Append the result to the list
+    nearby_postcodes[[i]] <- data.frame(ID = df1$ID[i], total_spending = total_spending)
+  }
+
+  return(do.call(rbind, nearby_postcodes))
+}
+
+# Set your desired distance threshold in meters
+distance_threshold1 <- 2000
+distance_threshold2 <- 10000
+distance_threshold3 <- 4000
+
+# Find nearby postcodes and their total spending
+spending_by_respondent1 <- find_nearby_postcodes(combined, all_sectors, distance_threshold1)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent1, by = "ID")
+
+# Rename spending for 2km
+combined <- rename(combined, total_spending_RDP_2km = total_spending)
+
+# Re-run formula and rename for 10km
+# Find nearby postcodes and their total spending
+spending_by_respondent2 <- find_nearby_postcodes(combined, all_sectors, distance_threshold2)
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent2, by = "ID")
+combined <- rename(combined, total_spending_RDP_10km = total_spending)
+
+# Re-run formula and rename for 4km
+# Find nearby postcodes and their total spending
+spending_by_respondent3 <- find_nearby_postcodes(combined, all_sectors, distance_threshold3)
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent3, by = "ID")
+combined <- rename(combined, total_spending_RDP_4km = total_spending)
+
+
+# SFP
+# NOTE: This function includes spending in the respondent's own postcode.
+find_nearby_postcodes <- function(df1, df2, distance_threshold) {
+  nearby_postcodes <- list()
+
+  # Remove rows with NA values in easting or northing in both dataframes
+  df1 <- df1[!is.na(df1$easting) & !is.na(df1$northing), ]
+  df2 <- df2[!is.na(df2$easting) & !is.na(df2$northing), ]
+
+  # Convert eastings and northings to spatial points and transform to lon/lat
+  coords_df1 <- st_as_sf(df1, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  coords_df2 <- st_as_sf(df2, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  for (i in 1:nrow(df1)) {
+    # Calculate distances
+    distances <- distVincentySphere(coords_df1[i, ], coords_df2)
+
+    # Filter postcodes within the threshold distance
+    nearby <- df2[distances <= distance_threshold, ]
+
+    # Sum the spending for the nearby postcodes
+    total_spending <- sum(nearby$totalSFP, na.rm = TRUE)
+
+    # Append the result to the list
+    nearby_postcodes[[i]] <- data.frame(ID = df1$ID[i], total_spending = total_spending)
+  }
+
+  return(do.call(rbind, nearby_postcodes))
+}
+
+# Set your desired distance threshold in meters
+distance_threshold1 <- 2000
+distance_threshold2 <- 10000
+distance_threshold3 <- 4000
+
+# Find nearby postcodes and their total spending
+spending_by_respondent1 <- find_nearby_postcodes(combined, all_sectors, distance_threshold1)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent1, by = "ID")
+
+# Rename spending for 2km
+combined <- rename(combined, total_spending_SFP_2km = total_spending)
+
+# Combining SFP and RDP log1p; preserving balance between two funding stream
+combined$total_spending_combined_SFPRDP_log1p <- log1p(combined$total_spending_SFP_2km) + log1p(combined$total_spending_RDP_2km)
+
+# For quadratic function; dividing by 1,000,000
+combined$total_spending_combined_SFPRDP <- combined$total_spending_SFP_2km + combined$total_spending_RDP_2km
+combined$total_spending_combined_SFPRDP_mil <- combined$total_spending_combined_SFPRDP / 1000000
+combined$total_spending_combined_SFPRDP_mil_squared <- combined$total_spending_combined_SFPRDP_mil^2
+
+# Re-run formula and rename for 10km
+# Find nearby postcodes and their total spending
+spending_by_respondent2 <- find_nearby_postcodes(combined, all_sectors, distance_threshold2)
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent2, by = "ID")
+combined <- rename(combined, total_spending_SFP_10km = total_spending)
+
+# Re-run formula and rename for 4km
+# Find nearby postcodes and their total spending
+spending_by_respondent3 <- find_nearby_postcodes(combined, all_sectors, distance_threshold3)
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent3, by = "ID")
+combined <- rename(combined, total_spending_SFP_4km = total_spending)
+
+# CRF
+# NOTE: This function includes spending in the respondent's own postcode.
+find_nearby_postcodes <- function(df1, df2, distance_threshold) {
+  nearby_postcodes <- list()
+
+  # Remove rows with NA values in easting or northing in both dataframes
+  df1 <- df1[!is.na(df1$easting) & !is.na(df1$northing), ]
+  df2 <- df2[!is.na(df2$easting) & !is.na(df2$northing), ]
+
+  # Convert eastings and northings to spatial points and transform to lon/lat
+  coords_df1 <- st_as_sf(df1, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  coords_df2 <- st_as_sf(df2, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  for (i in 1:nrow(df1)) {
+    # Calculate distances
+    distances <- distVincentySphere(coords_df1[i, ], coords_df2)
+
+    # Filter postcodes within the threshold distance
+    nearby <- df2[distances <= distance_threshold, ]
+
+    # Sum the spending for the nearby postcodes
+    total_spending <- sum(nearby$total_spending_crf, na.rm = TRUE)
+
+    # Append the result to the list
+    nearby_postcodes[[i]] <- data.frame(ID = df1$ID[i], total_spending = total_spending)
+  }
+
+  return(do.call(rbind, nearby_postcodes))
+}
+
+# Set your desired distance threshold in meters
+distance_threshold1 <- 2000
+distance_threshold2 <- 10000
+
+# Find nearby postcodes and their total spending
+spending_by_respondent1 <- find_nearby_postcodes(combined, lvl_up, distance_threshold1)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent1, by = "ID")
+
+# Rename spending for 2km
+combined <- rename(combined, total_spending_CRF_2km = total_spending)
+
+# Re-run formula and rename for 10km
+# Find nearby postcodes and their total spending
+spending_by_respondent2 <- find_nearby_postcodes(combined, lvl_up, distance_threshold2)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent2, by = "ID")
+combined <- rename(combined, total_spending_CRF_10km = total_spending)
+
+# LUF Round 1
+# NOTE: This function includes spending in the respondent's own postcode.
+find_nearby_postcodes <- function(df1, df2, distance_threshold) {
+  nearby_postcodes <- list()
+
+  # Remove rows with NA values in easting or northing in both dataframes
+  df1 <- df1[!is.na(df1$easting) & !is.na(df1$northing), ]
+  df2 <- df2[!is.na(df2$easting) & !is.na(df2$northing), ]
+
+  # Convert eastings and northings to spatial points and transform to lon/lat
+  coords_df1 <- st_as_sf(df1, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  coords_df2 <- st_as_sf(df2, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  for (i in 1:nrow(df1)) {
+    # Calculate distances
+    distances <- distVincentySphere(coords_df1[i, ], coords_df2)
+
+    # Filter postcodes within the threshold distance
+    nearby <- df2[distances <= distance_threshold, ]
+
+    # Sum the spending for the nearby postcodes
+    total_spending <- sum(nearby$total_spending_luf, na.rm = TRUE)
+
+    # Append the result to the list
+    nearby_postcodes[[i]] <- data.frame(ID = df1$ID[i], total_spending = total_spending)
+  }
+
+  return(do.call(rbind, nearby_postcodes))
+}
+
+# Set your desired distance threshold in meters
+distance_threshold1 <- 2000
+distance_threshold2 <- 10000
+
+# Find nearby postcodes and their total spending
+spending_by_respondent1 <- find_nearby_postcodes(combined, lvl_up, distance_threshold1)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent1, by = "ID")
+
+# Rename spending for 2km
+combined <- rename(combined, total_spending_LUF_2km = total_spending)
+
+# Re-run formula and rename for 10km
+# Find nearby postcodes and their total spending
+spending_by_respondent2 <- find_nearby_postcodes(combined, lvl_up, distance_threshold2)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent2, by = "ID")
+combined <- rename(combined, total_spending_LUF_10km = total_spending)
+
+# LUF round 1 and 2
+# NOTE: This function includes spending in the respondent's own postcode.
+find_nearby_postcodes <- function(df1, df2, distance_threshold) {
+  nearby_postcodes <- list()
+
+  # Remove rows with NA values in easting or northing in both dataframes
+  df1 <- df1[!is.na(df1$easting) & !is.na(df1$northing), ]
+  df2 <- df2[!is.na(df2$easting) & !is.na(df2$northing), ]
+
+  # Convert eastings and northings to spatial points and transform to lon/lat
+  coords_df1 <- st_as_sf(df1, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  coords_df2 <- st_as_sf(df2, coords = c("easting", "northing"), crs = 27700) %>%
+    st_transform(crs = 4326) %>%
+    st_coordinates()
+
+  for (i in 1:nrow(df1)) {
+    # Calculate distances
+    distances <- distVincentySphere(coords_df1[i, ], coords_df2)
+
+    # Filter postcodes within the threshold distance
+    nearby <- df2[distances <= distance_threshold, ]
+
+    # Sum the spending for the nearby postcodes
+    total_spending <- sum(nearby$total_spending_luf_round1and2, na.rm = TRUE)
+
+    # Append the result to the list
+    nearby_postcodes[[i]] <- data.frame(ID = df1$ID[i], total_spending = total_spending)
+  }
+
+  return(do.call(rbind, nearby_postcodes))
+}
+
+# Set your desired distance threshold in meters
+distance_threshold1 <- 2000
+distance_threshold2 <- 10000
+
+# Find nearby postcodes and their total spending
+spending_by_respondent1 <- find_nearby_postcodes(combined, lvl_up, distance_threshold1)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent1, by = "ID")
+
+# Rename spending for 2km
+combined <- rename(combined, total_spending_LUF_1and2_2km = total_spending)
+
+# Re-run formula and rename for 10km
+# Find nearby postcodes and their total spending
+spending_by_respondent2 <- find_nearby_postcodes(combined, lvl_up, distance_threshold2)
+
+# Add the spending variable to the respondents dataframe
+combined <- left_join(combined, spending_by_respondent2, by = "ID")
+combined <- rename(combined, total_spending_LUF_1and2_10km = total_spending)
+
+# Natural log + 1
+combined$total_spending_SFP_2km_log1p <- log1p(combined$total_spending_SFP_2km)
+combined$total_spending_RDP_2km_log1p <- log1p(combined$total_spending_RDP_2km)
+combined$total_spending_SFP_4km_log1p <- log1p(combined$total_spending_SFP_4km)
+combined$total_spending_RDP_4km_log1p <- log1p(combined$total_spending_RDP_4km)
+combined$total_spending_SFP_10km_log1p <- log1p(combined$total_spending_SFP_10km)
+combined$total_spending_RDP_10km_log1p <- log1p(combined$total_spending_RDP_10km)
+combined$weighted_spending_RDP_log1p <- log1p(combined$weighted_spending_RDP)
+combined$weighted_spending_SFP_log1p <- log1p(combined$weighted_spending_SFP)
+
+combined$totalSFPpc_W1_log1p <- log1p(combined$totalSFPpc_W1)
+combined$totalRDPpc_W1_log1p <- log1p(combined$totalRDPpc_W1)
+
+combined$total_spending_LUF_1and2_2km <- as.numeric(as.character(combined$total_spending_LUF_1and2_2km))
+combined$total_spending_LUF_1and2_2km_log1p <- log1p(combined$total_spending_LUF_1and2_2km)
+
+combined$total_spending_CRF_2km <- as.numeric(as.character(combined$total_spending_CRF_2km))
+combined$total_spending_CRF_2km_log1p <- log1p(combined$total_spending_CRF_2km)
+```
+
+```{r}
+# Spending DV for multinomial logit model
+# General EU awareness and then specific project
+
+# NOTES: No pc sector is NA for whole variable
+# General sense of EU involvement is always coded DK for specific proj awareness
+# Non-existent projects counted as wrong
+# If 'yes' and then none, count all these as DK because the specific project question is only aske of those who said there was spending in the area. NOTE that this routing doesn't work for the gov levelling up schemes (because of the error)
+# This is not differentiating specific project responses by number of projects within 2km.
+# This doesn't include people who were forced to guess
+
+# 3,4, 5, 6, 9, 10, 11, 12, 15, 16 are only codes which change based on distance
+
+# WAVE 1
+
+# 2km
+combined <- mutate(combined,
+  spendingper_eu_2km = case_when(
+    publicspend2_W1 == 4 ~ 0, # DK
+    publicspend2_W1 == 3 ~ 1, # No spending
+    (publicspend2_W1 == 1 | publicspend2_W1 == 2) & (Publicspend3code_W1 == 5 | Publicspend3code_W1 == 6 | Publicspend3code_W1 == 11 | Publicspend3code_W1 == 12) ~ 2, # Yes lots/little + correct project
+    (publicspend2_W1 == 1 | publicspend2_W1 == 2) & (Publicspend3code_W1 == 17 | Publicspend3code_W1 == 18 | Publicspend3code_W1 == 19 | Publicspend3code_W1 == 20 | Publicspend3code_W1 == 1 | Publicspend3code_W1 == 7 | Publicspend3code_W1 == 13 | Publicspend3code_W1 == 24 | Publicspend3code_W1 == 25 | Publicspend3code_W1 == 26 | Publicspend3code_W1 == 2 | Publicspend3code_W1 == 8 | Publicspend3code_W1 == 14 | Publicspend3code_W1 == 3 | Publicspend3code_W1 == 4 | Publicspend3code_W1 == 9 | Publicspend3code_W1 == 10 | Publicspend3code_W1 == 15 | Publicspend3code_W1 == 16) ~ 3, # Yes
+    Publicspend3code_W1 == 21 | Publicspend3code_W1 == 22 | Publicspend3code_W1 == 23 | Publicspend3code_W1 == 27 ~ NA_real_ # NA
+  ),
+  spendingper_eu_2km = factor(spendingper_eu_2km,
+    levels = c(0, 1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+# 10km
+combined <- mutate(combined,
+  spendingper_eu_10km = case_when(
+    publicspend2_W1 == 4 ~ 0, # DK
+    publicspend2_W1 == 3 ~ 1, # No spending
+    (publicspend2_W1 == 1 | publicspend2_W1 == 2) & (Publicspend3code_W1 == 3 | Publicspend3code_W1 == 9 | Publicspend3code_W1 == 15 | Publicspend3code_W1 == 5 | Publicspend3code_W1 == 6 | Publicspend3code_W1 == 11 | Publicspend3code_W1 == 12) ~ 2, # Yes lots/little + correct project
+    (publicspend2_W1 == 1 | publicspend2_W1 == 2) & (Publicspend3code_W1 == 17 | Publicspend3code_W1 == 18 | Publicspend3code_W1 == 19 | Publicspend3code_W1 == 20 | Publicspend3code_W1 == 1 | Publicspend3code_W1 == 7 | Publicspend3code_W1 == 13 | Publicspend3code_W1 == 24 | Publicspend3code_W1 == 25 | Publicspend3code_W1 == 26 | Publicspend3code_W1 == 2 | Publicspend3code_W1 == 8 | Publicspend3code_W1 == 14 | Publicspend3code_W1 == 4 | Publicspend3code_W1 == 10 | Publicspend3code_W1 == 16) ~ 3, # Yes
+    Publicspend3code_W1 == 21 | Publicspend3code_W1 == 22 | Publicspend3code_W1 == 23 | Publicspend3code_W1 == 27 ~ NA_real_ # NA
+  ),
+  spendingper_eu_10km = factor(spendingper_eu_10km,
+    levels = c(0, 1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK / wrong")
+  )
+)
+```
+
+```{r}
+# Spending DV for multinomial logit model
+# General EU awareness and then specific project
+
+# WAVE 2
+
+# 2km
+combined <- mutate(combined,
+  spendingper_eu_2km_W2 = case_when(
+    publicspend2_W2 == 4 ~ 0, # DK
+    publicspend2_W2 == 3 ~ 1, # No spending
+    (publicspend2_W2 == 1 | publicspend2_W2 == 2) & (Publicspend3_fullcode_W2 == 5 | Publicspend3_fullcode_W2 == 6 | Publicspend3_fullcode_W2 == 11 | Publicspend3_fullcode_W2 == 12) ~ 2, # Yes lots/little + correct project
+    (publicspend2_W2 == 1 | publicspend2_W2 == 2) & (Publicspend3_fullcode_W2 == 17 | Publicspend3_fullcode_W2 == 18 | Publicspend3_fullcode_W2 == 19 | Publicspend3_fullcode_W2 == 20 | Publicspend3_fullcode_W2 == 1 | Publicspend3_fullcode_W2 == 7 | Publicspend3_fullcode_W2 == 13 | Publicspend3_fullcode_W2 == 24 | Publicspend3_fullcode_W2 == 25 | Publicspend3_fullcode_W2 == 26 | Publicspend3_fullcode_W2 == 2 | Publicspend3_fullcode_W2 == 8 | Publicspend3_fullcode_W2 == 14 | Publicspend3_fullcode_W2 == 3 | Publicspend3_fullcode_W2 == 4 | Publicspend3_fullcode_W2 == 9 | Publicspend3_fullcode_W2 == 10 | Publicspend3_fullcode_W2 == 15 | Publicspend3_fullcode_W2 == 16) ~ 3, # Yes
+    Publicspend3_fullcode_W2 == 21 | Publicspend3_fullcode_W2 == 22 | Publicspend3_fullcode_W2 == 23 | Publicspend3_fullcode_W2 == 27 ~ NA_real_ # NA
+  ),
+  spendingper_eu_2km_W2 = factor(spendingper_eu_2km_W2,
+    levels = c(0, 1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+# 10km
+combined <- mutate(combined,
+  spendingper_eu_10km_W2 = case_when(
+    publicspend2_W2 == 4 ~ 0, # DK
+    publicspend2_W2 == 3 ~ 1, # No spending
+    (publicspend2_W2 == 1 | publicspend2_W2 == 2) & (Publicspend3_fullcode_W2 == 3 | Publicspend3_fullcode_W2 == 9 | Publicspend3_fullcode_W2 == 15 | Publicspend3_fullcode_W2 == 5 | Publicspend3_fullcode_W2 == 6 | Publicspend3_fullcode_W2 == 11 | Publicspend3_fullcode_W2 == 12) ~ 2, # Yes lots/little + correct project
+    (publicspend2_W2 == 1 | publicspend2_W2 == 2) & (Publicspend3_fullcode_W2 == 17 | Publicspend3_fullcode_W2 == 18 | Publicspend3_fullcode_W2 == 19 | Publicspend3_fullcode_W2 == 20 | Publicspend3_fullcode_W2 == 1 | Publicspend3_fullcode_W2 == 7 | Publicspend3_fullcode_W2 == 13 | Publicspend3_fullcode_W2 == 24 | Publicspend3_fullcode_W2 == 25 | Publicspend3_fullcode_W2 == 26 | Publicspend3_fullcode_W2 == 2 | Publicspend3_fullcode_W2 == 8 | Publicspend3_fullcode_W2 == 14 | Publicspend3_fullcode_W2 == 4 | Publicspend3_fullcode_W2 == 10 | Publicspend3_fullcode_W2 == 16) ~ 3, # Yes
+    Publicspend3_fullcode_W2 == 21 | Publicspend3_fullcode_W2 == 22 | Publicspend3_fullcode_W2 == 23 | Publicspend3_fullcode_W2 == 27 ~ NA_real_ # NA
+  ),
+  spendingper_eu_10km_W2 = factor(spendingper_eu_10km_W2,
+    levels = c(0, 1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK / wrong")
+  )
+)
+```
+
+```{r}
+# Spending DV for multinomial logit model
+# General EU awareness and then specific project
+
+# WAVE 3
+
+# 2km
+combined <- mutate(combined,
+  spendingper_eu_2km_W3 = case_when(
+    publicspend2_W3 == 4 ~ 0, # DK
+    publicspend2_W3 == 3 ~ 1, # No spending
+    (publicspend2_W3 == 1 | publicspend2_W3 == 2) & (Publicspend3_fullcode_W3 == 5 | Publicspend3_fullcode_W3 == 6 | Publicspend3_fullcode_W3 == 11 | Publicspend3_fullcode_W3 == 12) ~ 2, # Yes lots/little + correct project
+    (publicspend2_W3 == 1 | publicspend2_W3 == 2) & (Publicspend3_fullcode_W3 == 17 | Publicspend3_fullcode_W3 == 18 | Publicspend3_fullcode_W3 == 19 | Publicspend3_fullcode_W3 == 20 | Publicspend3_fullcode_W3 == 1 | Publicspend3_fullcode_W3 == 7 | Publicspend3_fullcode_W3 == 13 | Publicspend3_fullcode_W3 == 24 | Publicspend3_fullcode_W3 == 25 | Publicspend3_fullcode_W3 == 26 | Publicspend3_fullcode_W3 == 2 | Publicspend3_fullcode_W3 == 8 | Publicspend3_fullcode_W3 == 14 | Publicspend3_fullcode_W3 == 3 | Publicspend3_fullcode_W3 == 4 | Publicspend3_fullcode_W3 == 9 | Publicspend3_fullcode_W3 == 10 | Publicspend3_fullcode_W3 == 15 | Publicspend3_fullcode_W3 == 16) ~ 3, # Yes
+    Publicspend3_fullcode_W3 == 21 | Publicspend3_fullcode_W3 == 22 | Publicspend3_fullcode_W3 == 23 | Publicspend3_fullcode_W3 == 27 ~ NA_real_ # NA
+  ),
+  spendingper_eu_2km_W3 = factor(spendingper_eu_2km_W3,
+    levels = c(0, 1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+# 10km
+combined <- mutate(combined,
+  spendingper_eu_10km_W3 = case_when(
+    publicspend2_W3 == 4 ~ 0, # DK
+    publicspend2_W3 == 3 ~ 1, # No spending
+    (publicspend2_W3 == 1 | publicspend2_W3 == 2) & (Publicspend3_fullcode_W3 == 3 | Publicspend3_fullcode_W3 == 9 | Publicspend3_fullcode_W3 == 15 | Publicspend3_fullcode_W3 == 5 | Publicspend3_fullcode_W3 == 6 | Publicspend3_fullcode_W3 == 11 | Publicspend3_fullcode_W3 == 12) ~ 2, # Yes lots/little + correct project
+    (publicspend2_W3 == 1 | publicspend2_W3 == 2) & (Publicspend3_fullcode_W3 == 17 | Publicspend3_fullcode_W3 == 18 | Publicspend3_fullcode_W3 == 19 | Publicspend3_fullcode_W3 == 20 | Publicspend3_fullcode_W3 == 1 | Publicspend3_fullcode_W3 == 7 | Publicspend3_fullcode_W3 == 13 | Publicspend3_fullcode_W3 == 24 | Publicspend3_fullcode_W3 == 25 | Publicspend3_fullcode_W3 == 26 | Publicspend3_fullcode_W3 == 2 | Publicspend3_fullcode_W3 == 8 | Publicspend3_fullcode_W3 == 14 | Publicspend3_fullcode_W3 == 4 | Publicspend3_fullcode_W3 == 10 | Publicspend3_fullcode_W3 == 16) ~ 3, # Yes
+    Publicspend3_fullcode_W3 == 21 | Publicspend3_fullcode_W3 == 22 | Publicspend3_fullcode_W3 == 23 | Publicspend3_fullcode_W3 == 27 ~ NA_real_ # NA
+  ),
+  spendingper_eu_10km_W3 = factor(spendingper_eu_10km_W3,
+    levels = c(0, 1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK / wrong")
+  )
+)
+```
+
+```{r}
+# Levelling up wave 2
+
+combined$Publicspend4_W2[combined$Publicspend4_W2 == 8 | combined$Publicspend4_W2 == 9] <- NA
+
+combined <- mutate(combined,
+  publicspend4_final = case_when(
+    Publicspend4_W2 == 4 ~ 1,
+    Publicspend4_W2 == 3 ~ 2,
+    Publicspend4_W2 == 1 | Publicspend4_W2 == 2 ~ 3
+  ),
+  publicspend4_final = factor(publicspend4_final,
+    levels = c(1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend")
+  )
+)
+
+as.data.frame(table(combined$publicspend4_final))
+
+# Correct / incorrect
+combined <- mutate(combined,
+  spendingper_uk = case_when(
+    Publicspend4_W2 == 4 ~ 1, # DK
+    Publicspend4_W2 == 3 ~ 2, # No spending
+    (Publicspend4_W2 == 1 | Publicspend4_W2 == 2) & (Publicspend5_fullcode_W2 == 1 | Publicspend5_fullcode_W2 == 2) ~ 3, # Yes lots/little + correct project
+    (Publicspend4_W2 == 1 | Publicspend4_W2 == 2) & (Publicspend5_fullcode_W2 == 3 | Publicspend5_fullcode_W2 == 4 | Publicspend5_fullcode_W2 == 10 | Publicspend5_fullcode_W2 == 5 | Publicspend5_fullcode_W2 == 6 | Publicspend5_fullcode_W2 == 7 | Publicspend5_fullcode_W2 == 8) ~ 4, # Yes
+  ),
+  spendingper_uk = factor(spendingper_uk,
+    levels = c(1, 2, 3, 4),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+as.data.frame(table(combined$spendingper_uk))
+```
+
+```{r}
+# Levelling up wave 3
+
+combined$Publicspend4_W3[combined$Publicspend4_W3 == 8 | combined$Publicspend4_W3 == 9] <- NA
+
+combined <- mutate(combined,
+  publicspend4_W3_final = case_when(
+    Publicspend4_W3 == 4 ~ 1,
+    Publicspend4_W3 == 3 ~ 2,
+    Publicspend4_W3 == 1 | Publicspend4_W3 == 2 ~ 3
+  ),
+  publicspend4_W3_final = factor(publicspend4_W3_final,
+    levels = c(1, 2, 3),
+    labels = c("DK", "No spend", "Yes spend")
+  )
+)
+
+as.data.frame(table(combined$publicspend4_W3_final))
+
+# Correct / incorrect
+combined <- mutate(combined,
+  spendingper_uk_W3 = case_when(
+    Publicspend4_W3 == 4 ~ 1, # DK
+    Publicspend4_W3 == 3 ~ 2, # No spending
+    (Publicspend4_W3 == 1 | Publicspend4_W3 == 2) & (Publicspend5_fullcode_W3 == 1 | Publicspend5_fullcode_W3 == 2) ~ 3, # Yes lots/little + correct project
+    (Publicspend4_W3 == 1 | Publicspend4_W3 == 2) & (Publicspend5_fullcode_W3 == 3 | Publicspend5_fullcode_W3 == 4 | Publicspend5_fullcode_W3 == 10 | Publicspend5_fullcode_W3 == 5 | Publicspend5_fullcode_W3 == 6 | Publicspend5_fullcode_W3 == 7 | Publicspend5_fullcode_W3 == 8) ~ 4, # Yes
+  ),
+  spendingper_uk_W3 = factor(spendingper_uk_W3,
+    levels = c(1, 2, 3, 4),
+    labels = c("DK", "No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+as.data.frame(table(combined$spendingper_uk_W3))
+```
+
+```{r}
+# Remainer and leaver split file
+
+# Remainers
+combinedremain <- combined %>%
+  filter(pastvote_EURef_W1 == 1)
+
+# Leavers
+combinedleave <- combined %>%
+  filter(pastvote_EURef_W1 == 2)
+
+# Neither
+combinedneither <- combined %>%
+  filter(pastvote_EURef_W1 == 3 | pastvote_EURef_W1 == 4)
+
+# Different subset for identity strength
+# Remainers
+combinedremain2 <- combined %>%
+  filter(Brex3_W1 == 2)
+
+# Leavers
+combinedleave2 <- combined %>%
+  filter(Brex3_W1 == 1)
+
+# Neither
+combinedneither2 <- combined %>%
+  filter(Brex3_W1 == 3 | Brex3_W1 == 4)
+
+
+# Multinomial recoding changes from past vote to current identity (hindsight)
+combinedremain <- mutate(combinedremain,
+  brex_factor_change_remain2 = case_when(
+    Brex1_W1 == 1 ~ 1, # Leaver
+    Brex1_W1 == 2 ~ 0, # Remainer
+    Brex1_W1 == 3 ~ 2
+  ),
+  brex_factor_change_remain2 = factor(brex_factor_change_remain2,
+    levels = c(0, 1, 2),
+    labels = c("Stay same", "Switched to Leaver", "Switched to neither / DK")
+  )
+)
+
+combinedleave <- mutate(combinedleave,
+  brex_factor_change_leave2 = case_when(
+    Brex1_W1 == 1 ~ 0, # Leaver
+    Brex1_W1 == 2 ~ 1, # Remainer
+    Brex1_W1 == 3 ~ 2
+  ),
+  brex_factor_change_leave2 = factor(brex_factor_change_leave2,
+    levels = c(0, 1, 2),
+    labels = c("Stay same", "Switched to Remainer", "Switched to neither / DK")
+  )
+)
+
+combinedneither <- mutate(combinedneither,
+  brex_factor_change_neither2 = case_when(
+    Brex1_W1 == 3 ~ 0,
+    Brex1_W1 == 2 ~ 1, # Remainer
+    Brex1_W1 == 1 ~ 2 # Leaver
+  ),
+  brex_factor_change_neither2 = factor(brex_factor_change_neither2,
+    levels = c(0, 1, 2),
+    labels = c("Stay same", "Switched to Leaver", "Switched to Remainer")
+  )
+)
+
+# Excluding DNV
+combinedremain <- mutate(combinedremain,
+  brex_factor_change_remain3 = case_when(
+    Brex1_W1 == 1 ~ 1, # Leaver
+    Brex1_W1 == 2 ~ 0 # Remainer
+  ),
+  brex_factor_change_remain3 = factor(brex_factor_change_remain3,
+    levels = c(0, 1),
+    labels = c("Stay same", "Switched to Leaver")
+  )
+)
+
+combinedleave <- mutate(combinedleave,
+  brex_factor_change_leave3 = case_when(
+    Brex1_W1 == 1 ~ 0, # Leaver
+    Brex1_W1 == 2 ~ 1 # Remainer
+  ),
+  brex_factor_change_leave3 = factor(brex_factor_change_leave3,
+    levels = c(0, 1),
+    labels = c("Stay same", "Switched to Remainer")
+  )
+)
+
+# Strength
+combinedremain2$Rstrength_W1[combinedremain2$Rstrength_W1 == 98 | combinedremain2$Rstrength_W1 == 99] <- NA
+
+combinedleave2$Lstrength_W1[combinedleave2$Lstrength_W1 == 98 | combinedleave2$Lstrength_W1 == 99] <- NA
+```
+
+```{r}
+# Change in partisan identity
+
+# Factor variable
+combined <- mutate(combined,
+  part_factor = case_when(
+    pid1_W2 == 7 ~ 0,
+    pid1_W2 == 1 ~ 1,
+    pid1_W2 > 1 & pid1_W2 < 7 ~ 2
+  ),
+  part_factor = factor(part_factor,
+    levels = c(0, 1, 2),
+    labels = c("Neither", "Conservative", "Non-Conservative")
+  )
+)
+
+# 2019 GE
+# Wave 2
+# Conservative
+combinedcon <- combined %>%
+  filter(pastvote_ge_2019_W2 == 1)
+
+# Non Conservative
+combinednoncon <- combined %>%
+  filter(pastvote_ge_2019_W2 >= 2 & pastvote_ge_2019_W2 <= 98)
+
+# Neither
+combinedneither_party <- combined %>%
+  filter(voted_ge_2019_W3 == 2)
+
+
+# 2022
+combinedcon <- mutate(combinedcon,
+  part_factor_change_con = case_when(
+    pid1_W2 == 1 ~ 0, # Con
+    pid1_W2 >= 2 & pid1_W2 <= 6 ~ 1, # Non Con
+    pid1_W2 == 7 ~ 2 # None
+  ),
+  part_factor_change_con = factor(part_factor_change_con,
+    levels = c(0, 1, 2),
+    labels = c("Stay same", "Switched to non-Con", "Switched to none")
+  )
+)
+
+combinednoncon <- mutate(combinednoncon,
+  part_factor_change_noncon = case_when(
+    pid1_W2 == 1 ~ 1, # Con
+    pid1_W2 >= 2 & pid1_W2 <= 6 ~ 0, # Non Con
+    pid1_W2 == 7 ~ 2 # None
+  ),
+  part_factor_change_noncon = factor(part_factor_change_noncon,
+    levels = c(0, 1, 2),
+    labels = c("Stay same", "Switched to Con", "Switched to none")
+  )
+)
+
+combinedneither_party <- mutate(combinedneither_party,
+  part_factor_change_neither = case_when(
+    pid1_W2 == 1 ~ 1, # Con
+    pid1_W2 >= 2 & pid1_W2 <= 6 ~ 2, # Non con
+    pid1_W2 == 7 ~ 0 # None
+  ),
+  part_factor_change_neither = factor(part_factor_change_neither,
+    levels = c(0, 1, 2),
+    labels = c("Stay same", "Switched to Con", "Switched to non Con")
+  )
+)
+```
+
+<br>
+
+## Descriptives
+
+```{r}
+# EU
+# How many people correctly name EU spending projects in their local area
+# Wave 1
+# 2km
+combined %>%
+  filter(!is.na(spendingper_eu_2km)) %>%
+  group_by(spendingper_eu_2km) %>%
+  summarise(weighted_sum = sum(W8_W1)) %>%
+  mutate(
+    total_weight = sum(weighted_sum),
+    proportion = weighted_sum / total_weight
+  ) %>%
+  dplyr::select(spendingper_eu_2km, proportion)
+
+# Levelling up
+# How many people correctly name ‘Levelling Up’ projects in their local area
+# Wave 2
+combined %>%
+  filter(!is.na(spendingper_uk)) %>%
+  group_by(spendingper_uk) %>%
+  summarise(weighted_sum = sum(W8_W2)) %>%
+  mutate(
+    total_weight = sum(weighted_sum),
+    proportion = weighted_sum / total_weight
+  ) %>%
+  dplyr::select(spendingper_uk, proportion)
+
+# Wave 3
+combined %>%
+  filter(!is.na(spendingper_uk_W3)) %>%
+  group_by(spendingper_uk_W3) %>%
+  summarise(weighted_sum = sum(W8_W3)) %>%
+  mutate(
+    total_weight = sum(weighted_sum),
+    proportion = weighted_sum / total_weight
+  ) %>%
+  dplyr::select(spendingper_uk_W3, proportion)
+```
+
+```{r}
+# Map
+# Postcode sectors
+# From: https://www.opendoorlogistics.com/downloads/
+# 2015 boundaries, (otherwise you have to buy from OS), but probably doesn't matter
+
+# read in postcode shapefile
+postcode_shape <- st_read("postcode_boundaries/Sectors.shp")
+
+# NOTE: these are slightly out of date, and only approximate polygons
+
+# Define the strings to filter by
+code_start1 <- "LL"
+code_start2 <- "SY"
+code_start3 <- "LD"
+code_start4 <- "SA"
+code_start5 <- "CF"
+code_start6 <- "NP"
+
+# Filter the postcodes using grepl and logical OR operator
+code_postcodes <- postcode_shape[grepl(paste0("^", code_start1), postcode_shape$name) | grepl(paste0("^", code_start2), postcode_shape$name) | grepl(paste0("^", code_start3), postcode_shape$name) | grepl(paste0("^", code_start4), postcode_shape$name) | grepl(paste0("^", code_start5), postcode_shape$name) | grepl(paste0("^", code_start6), postcode_shape$name), ]
+
+# # plot postcode boundaries for selected postcodes only
+# ggplot() +
+#   geom_sf(data = code_postcodes, color = "black", fill = "transparent") +
+#   coord_sf() +
+#   theme_void()
+
+# Using the allsectors dataframe
+code_postcodes <- code_postcodes %>% rename(postcode_sector = name)
+merged_data <- merge(code_postcodes, all_sectors, by = "postcode_sector")
+
+# Taking nat log +1
+merged_data$totalRDPlog <- log1p(merged_data$totalRDP)
+merged_data$totalSFPlog <- log1p(merged_data$totalSFP)
+```
+
+```{r}
+pc_shape <- st_read("postcode_boundaries/Sectors.shp")
+
+# British nat grid projection
+pc_shape <- st_transform(pc_shape, 27700)
+
+code_start1 <- "LL"
+code_start2 <- "SY"
+code_start3 <- "LD"
+code_start4 <- "SA"
+code_start5 <- "CF"
+code_start6 <- "NP"
+
+# Filter the postcodes using grepl and logical OR operator
+pc_shape <- pc_shape[grepl(paste0("^", code_start1), pc_shape$name) | grepl(paste0("^", code_start2), pc_shape$name) | grepl(paste0("^", code_start3), pc_shape$name) | grepl(paste0("^", code_start4), pc_shape$name) | grepl(paste0("^", code_start5), pc_shape$name) | grepl(paste0("^", code_start6), pc_shape$name), ]
+
+all_sectors2 <- rename(all_sectors, name = postcode_sector)
+
+# Taking nat log +1
+all_sectors2$totalRDPlog <- log1p(all_sectors2$totalRDP)
+all_sectors2$totalSFPlog <- log1p(all_sectors2$totalSFP)
+
+# This will preserve only welsh pc (SY some in Eng for instance)
+pc_shape <- merge(pc_shape, all_sectors2, by = "name")
+
+# Create buffer around shapes for simplifying
+pc_shape_buffered <- st_buffer(pc_shape, dist = 0.01)
+# Simplify polygon shapes
+pc_shape_simple <- ms_simplify(pc_shape_buffered, keep = 0.1)
+# This takes too long to process
+# pc_shape_simple <- st_simplify(pc_shape_buffered, dTolerance = 130)
+
+# Checking NA
+# sum(st_is_empty(pc_shape_simple))
+
+# Could remove NA POLYGON EMPTY. Workaround
+# pc_shape_simple <- pc_shape_simple[!st_is_empty(pc_shape_simple),]
+
+# Create a continuous cartogram
+# * MUST SET THIS HIGH ENOUGH WITH MANY POLYGONS *
+# Mean size error must be low enough. If it is too high (above 10?) then it will not resize properly
+cartogram_final <- cartogram_cont(pc_shape_simple, "Numpeople_2011_Total", itermax = 25)
+
+ggplot() +
+  geom_sf(data = cartogram_final, aes(fill = totalSFPlog), colour = NA, size = 0.1) +
+  scale_fill_gradient(low = "#6b88a5", high = "#fffa01") +
+  theme_minimal() +
+  labs(
+    # title = "Cartogram of SFP spending by postcode sector (log), \nweighted by population size",
+    fill = "Log of total SFP spending"
+  ) +
+  theme(
+    panel.grid.major = element_blank(),
+    axis.text = element_blank()
+  )
+
+ggsave("cart1.png")
+
+ggplot() +
+  geom_sf(data = cartogram_final, aes(fill = totalRDPlog), colour = NA, size = 0.1) +
+  scale_fill_gradient(low = "#7b98b5", high = "#fffa01") +
+  theme_minimal() +
+  labs(
+    # title = "Cartogram of RDP spending by postcode sector (log), \nweighted by population size",
+    fill = "Log of total RDP spending"
+  ) +
+  theme(
+    panel.grid.major = element_blank(),
+    axis.text = element_blank()
+  )
+
+ggsave("cart2.png")
+```
+
+<br>
+
+```{r}
+# Define variable names
+
+var_names <- c(
+  "degree" = "Degree",
+  "sleaver" = "School leaver",
+  "profile_gender_W1" = "Gender",
+  "ag18t24" = "18 to 24",
+  "ag25t39" = "25 to 39",
+  "ag40t64" = "40 to 64",
+  "ag18t39" = "18 to 39",
+  "abc1" = "ABC1",
+  "political_attention_W1" = "Political attention",
+  "leaver" = "Leaver",
+  "remainer" = "Remainer",
+  "leaver2" = "Leaver (w/ closers)",
+  "remainer2" = "Remainer (w/ closers)",
+  "total_spending_SFP_2km_log1p" = "Total SFP spending within 2km",
+  "total_spending_RDP_2km_log1p" = "Total RDP spending within 2km",
+  "total_spending_SFP_4km_log1p" = "Total SFP spending within 4km",
+  "total_spending_RDP_4km_log1p" = "Total RDP spending within 4km",
+  "total_spending_SFP_10km_log1p" = "Total SFP spending within 10km",
+  "total_spending_RDP_10km_log1p" = "Total RDP spending within 10km",
+  "tfringe" = "Town and fringe",
+  "urban" = "Urban",
+  "weighted_spending_RDP_log1p" = "Total RDP spending, weighted by time",
+  "weighted_spending_SFP_log1p" = "Total SFP spending, weighted by time",
+  "proportion_unemp" = "Proportion unemployed",
+  "total_spending_combined_SFPRDP_log1p" = "Total SFP and RDP spending within 2km",
+  "totalSFPpc_W1_log1p" = "Total SFP spending within pc sector",
+  "totalRDPpc_W1_log1p" = "Total RDP spending within pc sector",
+  "total_spending_combined_SFPRDP_mil" = "Total SFP and RDP spending within 2km, divided by 1,000,000",
+  "total_spending_combined_SFPRDP_mil_squared" = "Total SFP and RDP spending within 2km, divided by 1,000,000, squared"
+)
+```
+
+```{r}
+# For modelsummary
+my_stars <- c("***" = 0.001, "**" = 0.01, "*" = 0.05)
+```
+
+<br>
+
+# Spending awareness
+
+<br>
+
+```{r}
+# 2km
+spendgeneu_all_pc_2km <- multinom(spendingper_eu_2km ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + remainer2 + leaver2,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit)",
+  output = "gt"
+)
+
+# Appendix 3 10km
+spendgeneu_all_pc_10km <- multinom(spendingper_eu_10km ~ total_spending_SFP_10km_log1p + total_spending_RDP_10km_log1p + urban + tfringe + remainer2 + leaver2,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_10km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (10km limit)",
+  output = "gt"
+)
+
+# Appendix 4 2km additional controls
+spendgeneu_all_pc_2km_controls <- multinom(spendingper_eu_2km ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + remainer2 + leaver2 + ag18t24 + ag25t39 + ag40t64 + abc1 + sleaver + degree + political_attention_W1 + proportion_unemp,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_2km_controls,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit)",
+  output = "gt"
+)
+
+# Appendix 5 Timing
+spendgeneu_all_pc_tim_2km <- multinom(spendingper_eu_2km ~ weighted_spending_SFP_log1p + weighted_spending_RDP_log1p + urban + tfringe + remainer2 + leaver2,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_tim_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit) - Timing",
+  output = "gt"
+)
+
+# Appendix 8 Combined SFP and RDP 2km
+spendgeneu_all_pc_2km_combined <- multinom(spendingper_eu_2km ~ total_spending_combined_SFPRDP_log1p + urban + tfringe + remainer2 + leaver2,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_2km_combined,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit)",
+  output = "gt"
+)
+
+# Appendix 8 Separate SFP and RDP 2km
+# SFP
+spendgeneu_all_pc_2km_SFP <- multinom(spendingper_eu_2km ~ total_spending_SFP_2km_log1p + urban + tfringe + remainer2 + leaver2,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_2km_SFP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit)",
+  output = "gt"
+)
+
+# RDP
+spendgeneu_all_pc_2km_RDP <- multinom(spendingper_eu_2km ~ total_spending_RDP_2km_log1p + urban + tfringe + remainer2 + leaver2,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_2km_RDP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit)",
+  output = "gt"
+)
+
+# Appendix 10 2km quadratic
+spendgeneu_all_pc_2km_quadratic <- multinom(spendingper_eu_2km ~ total_spending_combined_SFPRDP_mil + total_spending_combined_SFPRDP_mil_squared + urban + tfringe + remainer2 + leaver2,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_2km_quadratic,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit)",
+  output = "gt"
+)
+
+```
+
+```{r}
+# Appendix 7 w/o Cardiff analysis
+combined_mcardiff <- subset(combined, Wales_pcon_W1 != 3)
+
+# 2km
+spendgeneu_all_pc_exact_cardiff <- multinom(spendingper_eu_2km ~ totalSFPpc_W1_log1p + totalRDPpc_W1_log1p + urban + tfringe + remainer2 + leaver2,
+  data = combined_mcardiff,
+  na.action = na.omit
+)
+
+modelsummary(spendgeneu_all_pc_exact_cardiff,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "EU spending awareness (2km limit), excluding Cardiff",
+  output = "gt"
+)
+```
+
+<br>
+
+# Brexit identity
+
+<br>
+
+```{r}
+# Multinom - past vote
+# 2km
+brex_all_past_multi_pc_2km <- multinom(brex_factor2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+
+# Appendix 3 10km
+brex_all_past_multi_pc_10km <- multinom(brex_factor2 ~ total_spending_SFP_10km_log1p + total_spending_RDP_10km_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_10km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (10km limit)",
+  output = "gt"
+)
+
+# Appendix 3 4km
+brex_all_past_multi_pc_4km <- multinom(brex_factor2 ~ total_spending_SFP_4km_log1p + total_spending_RDP_4km_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_4km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (4km limit)",
+  output = "gt"
+)
+
+# Appendix 4 2km additional controls
+brex_all_past_multi_pc_2km_con <- multinom(brex_factor2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + ag18t24 + ag25t39 + ag40t64 + abc1 + sleaver + degree + political_attention_W1 + proportion_unemp,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_2km_con,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+
+# Appendix 5 Timing
+brex_all_past_multi_pc_2km_tim <- multinom(brex_factor2 ~ weighted_spending_SFP_log1p + weighted_spending_RDP_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_2km_tim,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+
+# Appendix 8 Combining RDP and SFP 2km
+brex_all_past_multi_pc_2km_combine <- multinom(brex_factor2 ~ total_spending_combined_SFPRDP_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_2km_combine,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+
+# Appendix 8 Separate RDP and SFP 2km
+# SFP
+brex_all_past_multi_pc_2km_SFP <- multinom(brex_factor2 ~ total_spending_SFP_2km_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_2km_SFP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+
+# RDP
+brex_all_past_multi_pc_2km_RDP <- multinom(brex_factor2 ~ total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_2km_RDP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+
+# Appendix 9 Multinom - past vote; excluding DNV
+# 2km
+brex_all_past_multi_pc_2km_dnv <- glm(brex_factor3 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit,
+  family = binomial(link = "logit")
+)
+
+modelsummary(brex_all_past_multi_pc_2km_dnv,
+  stars = my_stars,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+
+# Appendix 10 2km quadratic
+brex_all_past_multi_pc_2km_quadratic <- multinom(brex_factor2 ~ total_spending_combined_SFPRDP_mil + total_spending_combined_SFPRDP_mil_squared + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(brex_all_past_multi_pc_2km_quadratic,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity (2km limit)",
+  output = "gt"
+)
+```
+
+```{r}
+# Multinom - change with current identity (hindsight)
+
+# 2km
+# Leave
+brex_change_l_multi_pc_2km <- multinom(brex_factor_change_leave2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_2km <- multinom(brex_factor_change_remain2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_2km <- multinom(brex_factor_change_neither2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit)",
+  output = "gt"
+)
+
+# Appendix 3 10km
+# Leave
+brex_change_l_multi_pc_10km <- multinom(brex_factor_change_leave2 ~ total_spending_SFP_10km_log1p + total_spending_RDP_10km_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_10km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (10km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_10km <- multinom(brex_factor_change_remain2 ~ total_spending_SFP_10km_log1p + total_spending_RDP_10km_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_10km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (10km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_10km <- multinom(brex_factor_change_neither2 ~ total_spending_SFP_10km_log1p + total_spending_RDP_10km_log1p + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_10km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (10km limit)",
+  output = "gt"
+)
+
+# Appendix 3 4km
+# Leave
+brex_change_l_multi_pc_4km <- multinom(brex_factor_change_leave2 ~ total_spending_SFP_4km_log1p + total_spending_RDP_4km_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_4km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (4km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_4km <- multinom(brex_factor_change_remain2 ~ total_spending_SFP_4km_log1p + total_spending_RDP_4km_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_4km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (4km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_4km <- multinom(brex_factor_change_neither2 ~ total_spending_SFP_4km_log1p + total_spending_RDP_4km_log1p + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_4km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (4km limit)",
+  output = "gt"
+)
+
+# Appendix 4 2km additional controls
+# Leave
+brex_change_l_multi_pc_2km_con <- multinom(brex_factor_change_leave2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + ag18t39 + ag40t64 + abc1 + sleaver + degree + political_attention_W1 + proportion_unemp,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_2km_con,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_2km_con <- multinom(brex_factor_change_remain2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + ag18t39 + ag40t64 + abc1 + sleaver + degree + political_attention_W1 + proportion_unemp,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_2km_con,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_2km_con <- multinom(brex_factor_change_neither2 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + ag18t39 + ag40t64 + abc1 + sleaver + degree + political_attention_W1 + proportion_unemp,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_2km_con,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit)",
+  output = "gt"
+)
+
+# Appendix 5 Timing
+# Leave
+brex_change_l_multi_pc_2km_tim <- multinom(brex_factor_change_leave2 ~ weighted_spending_SFP_log1p + weighted_spending_RDP_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_2km_tim,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit) - Timing",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_2km_tim <- multinom(brex_factor_change_remain2 ~ weighted_spending_SFP_log1p + weighted_spending_RDP_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_2km_tim,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit) - Timing",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_2km_tim <- multinom(brex_factor_change_neither2 ~ weighted_spending_SFP_log1p + weighted_spending_RDP_log1p + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_2km_tim,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit) - Timing",
+  output = "gt"
+)
+
+# Appendix 8 Combined SFP and RDP 2km
+# Leave
+brex_change_l_multi_pc_combined <- multinom(brex_factor_change_leave2 ~ total_spending_combined_SFPRDP_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_combined,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_combined <- multinom(brex_factor_change_remain2 ~ total_spending_combined_SFPRDP_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_combined,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_combined <- multinom(brex_factor_change_neither2 ~ total_spending_combined_SFPRDP_log1p + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_combined,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit)",
+  output = "gt"
+)
+
+# Appendix 8 Separate SFP and RDP 2km
+# SFP
+# Leave
+brex_change_l_multi_pc_SFP <- multinom(brex_factor_change_leave2 ~ total_spending_SFP_2km_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_SFP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_SFP <- multinom(brex_factor_change_remain2 ~ total_spending_SFP_2km_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_SFP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_SFP <- multinom(brex_factor_change_neither2 ~ total_spending_SFP_2km_log1p + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_SFP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit)",
+  output = "gt"
+)
+
+# RDP
+# Leave
+brex_change_l_multi_pc_RDP <- multinom(brex_factor_change_leave2 ~ total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_RDP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_RDP <- multinom(brex_factor_change_remain2 ~ total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_RDP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_RDP <- multinom(brex_factor_change_neither2 ~ total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_RDP,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit)",
+  output = "gt"
+)
+
+# Appendix 9 Excluding DNV
+# 2km
+# Leave
+brex_change_l_multi_pc_2km_2 <- glm(brex_factor_change_leave3 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit,
+  family = binomial(link = "logit")
+)
+
+modelsummary(brex_change_l_multi_pc_2km_2,
+  stars = my_stars,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_2km_2 <- glm(brex_factor_change_remain3 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit,
+  family = binomial(link = "logit")
+)
+
+modelsummary(brex_change_r_multi_pc_2km_2,
+  stars = my_stars,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit)",
+  output = "gt"
+)
+
+# Appendix 10 2km quadratic functions
+# Leave
+brex_change_l_multi_pc_2km_quadratic <- multinom(brex_factor_change_leave2 ~ total_spending_combined_SFPRDP_mil + total_spending_combined_SFPRDP_mil_squared + urban + tfringe,
+  data = combinedleave,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_l_multi_pc_2km_quadratic,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Leaver (2km limit)",
+  output = "gt"
+)
+
+# Remain
+brex_change_r_multi_pc_2km_quadratic <- multinom(brex_factor_change_remain2 ~ total_spending_combined_SFPRDP_mil + total_spending_combined_SFPRDP_mil_squared + urban + tfringe,
+  data = combinedremain,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_r_multi_pc_2km_quadratic,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Remainer (2km limit)",
+  output = "gt"
+)
+
+# Neither
+brex_change_n_multi_pc_2km_quadratic <- multinom(brex_factor_change_neither2 ~ total_spending_combined_SFPRDP_mil + total_spending_combined_SFPRDP_mil_squared + urban + tfringe,
+  data = combinedneither,
+  na.action = na.omit
+)
+
+modelsummary(brex_change_n_multi_pc_2km_quadratic,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit)",
+  output = "gt"
+)
+```
+
+```{r}
+# Brexit identity strength
+
+# 2km
+brex_all_2km_leave2 <- lm(Lstrength_W1 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_2km_remain2 <- lm(Rstrength_W1 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_2km_leave2, "Remainer identity" = brex_all_2km_remain2),
+  coef_rename = var_names,
+  title = "Brexit identity strength (2km limit)",
+  output = "gt",
+  stars = my_stars
+)
+
+# Appendix 3 10km
+brex_all_10km_leave2 <- lm(Lstrength_W1 ~ total_spending_SFP_10km_log1p + total_spending_RDP_10km_log1p + urban + tfringe,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_10km_remain2 <- lm(Rstrength_W1 ~ total_spending_SFP_10km_log1p + total_spending_RDP_10km_log1p + urban + tfringe,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_10km_leave2, "Remainer identity" = brex_all_10km_remain2),
+  coef_rename = var_names,
+  title = "Brexit identity strength (10km limit)",
+  output = "gt",
+  stars = my_stars
+)
+
+# Appendix 3 4km
+brex_all_4km_leave2 <- lm(Lstrength_W1 ~ total_spending_SFP_4km_log1p + total_spending_RDP_4km_log1p + urban + tfringe,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_4km_remain2 <- lm(Rstrength_W1 ~ total_spending_SFP_4km_log1p + total_spending_RDP_4km_log1p + urban + tfringe,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_4km_leave2, "Remainer identity" = brex_all_4km_remain2),
+  coef_rename = var_names,
+  title = "Brexit identity strength (4km limit)",
+  output = "gt",
+  stars = my_stars
+)
+
+# Appendix 4 2km additional controls
+brex_all_2km_leave2_con <- lm(Lstrength_W1 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + ag18t24 + ag25t39 + ag40t64 + abc1 + sleaver + degree + political_attention_W1 + proportion_unemp,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_2km_remain2_con <- lm(Rstrength_W1 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe + ag18t24 + ag25t39 + ag40t64 + abc1 + sleaver + degree + political_attention_W1 + proportion_unemp,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_2km_leave2_con, "Remainer identity" = brex_all_2km_remain2_con),
+  coef_rename = var_names,
+  title = "Brexit identity strength (2km limit)",
+  output = "gt",
+  stars = my_stars
+)
+
+# Appendix 5 Timing
+brex_all_2km_leave2_tim <- lm(Lstrength_W1 ~ weighted_spending_SFP_log1p + weighted_spending_RDP_log1p + urban + tfringe + political_attention_W1,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_2km_remain2_tim <- lm(Rstrength_W1 ~ weighted_spending_SFP_log1p + weighted_spending_RDP_log1p + urban + tfringe + political_attention_W1,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_2km_leave2_tim, "Remainer identity" = brex_all_2km_remain2_tim),
+  coef_rename = var_names,
+  title = "Brexit identity strength (2km limit) - Timing",
+  output = "gt",
+  stars = my_stars
+)
+
+# Appendix 8 Combined SFP and RDP 2km
+brex_all_combined_leave2 <- lm(Lstrength_W1 ~ total_spending_combined_SFPRDP_log1p + urban + tfringe,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_combined_remain2 <- lm(Rstrength_W1 ~ total_spending_combined_SFPRDP_log1p + urban + tfringe,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_combined_leave2, "Remainer identity" = brex_all_combined_remain2),
+  coef_rename = var_names,
+  title = "Brexit identity strength (2km limit)",
+  output = "gt",
+  stars = my_stars
+)
+
+# Appendix 8 Separate SFP and RDP 2km
+# SFP
+brex_all_SFP_leave2 <- lm(Lstrength_W1 ~ total_spending_SFP_2km_log1p + urban + tfringe,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_SFP_remain2 <- lm(Rstrength_W1 ~ total_spending_SFP_2km_log1p + urban + tfringe,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_SFP_leave2, "Remainer identity" = brex_all_SFP_remain2),
+  coef_rename = var_names,
+  title = "Brexit identity strength (2km limit)",
+  output = "gt",
+  stars = my_stars
+)
+
+# RDP
+brex_all_RDP_leave2 <- lm(Lstrength_W1 ~ total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_RDP_remain2 <- lm(Rstrength_W1 ~ total_spending_RDP_2km_log1p + urban + tfringe,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_RDP_leave2, "Remainer identity" = brex_all_RDP_remain2),
+  coef_rename = var_names,
+  title = "Brexit identity strength (2km limit)",
+  output = "gt",
+  stars = my_stars
+)
+
+# Appendix 10 2km quadratic
+brex_all_2km_leave2_quadratic <- lm(Lstrength_W1 ~ total_spending_combined_SFPRDP_mil + total_spending_combined_SFPRDP_mil_squared + urban + tfringe,
+  data = combinedleave2,
+  na.action = na.omit,
+)
+
+brex_all_2km_remain2_quadratic <- lm(Rstrength_W1 ~ total_spending_combined_SFPRDP_mil + total_spending_combined_SFPRDP_mil_squared + urban + tfringe,
+  data = combinedremain2,
+  na.action = na.omit,
+)
+
+modelsummary(list("Leaver identity" = brex_all_2km_leave2_quadratic, "Remainer identity" = brex_all_2km_remain2_quadratic),
+  coef_rename = var_names,
+  title = "Brexit identity strength (2km limit)",
+  output = "gt",
+  stars = my_stars
+)
+```
+
+<br>
+
+# Panel models
+
+<br>
+
+```{r}
+# Comparing distribution of correct responses across waves
+
+# Without closers
+combined$eurefid1_W1 <- factor(combined$eurefid1_W1,
+  levels = c(1, 2, 3),
+  labels = c("Leaver", "Remainer", "Neither")
+)
+
+combined$eurefid1_W2 <- factor(combined$eurefid1_W2,
+  levels = c(1, 2, 3),
+  labels = c("Leaver", "Remainer", "Neither")
+)
+
+combined$eurefid1_W3 <- factor(combined$eurefid1_W3,
+  levels = c(1, 2, 3),
+  labels = c("Leaver", "Remainer", "Neither")
+)
+
+# Recoding categories
+combined <- mutate(combined,
+  newspendingcat_W1 = case_when(
+    publicspend2_W1 == 4 | publicspend2_W1 == 3 ~ 0, # Combine DK and No spending
+    (publicspend2_W1 == 1 | publicspend2_W1 == 2) & (Publicspend3code_W1 %in% c(5, 6, 11, 12)) ~ 1, # Yes lots/little + correct project
+    (publicspend2_W1 == 1 | publicspend2_W1 == 2) & (Publicspend3code_W1 %in% c(17, 18, 19, 20, 1, 7, 13, 24, 25, 26, 2, 8, 14, 3, 4, 9, 10, 15, 16)) ~ 2, # Yes
+    Publicspend3code_W1 %in% c(21, 22, 23, 27) ~ NA_real_ # NA
+  ),
+  newspendingcat_W1 = factor(newspendingcat_W1,
+    levels = c(0, 1, 2),
+    labels = c("DK/No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+combined <- mutate(combined,
+  newspendingcat_W2 = case_when(
+    publicspend2_W2 == 4 | publicspend2_W2 == 3 ~ 0, # Combine DK and No spending
+    (publicspend2_W2 == 1 | publicspend2_W2 == 2) & (Publicspend3_fullcode_W2 %in% c(5, 6, 11, 12)) ~ 1, # Yes lots/little + correct project
+    (publicspend2_W2 == 1 | publicspend2_W2 == 2) & (Publicspend3_fullcode_W2 %in% c(17, 18, 19, 20, 1, 7, 13, 24, 25, 26, 2, 8, 14, 3, 4, 9, 10, 15, 16)) ~ 2, # Yes
+    Publicspend3_fullcode_W2 %in% c(21, 22, 23, 27) ~ NA_real_ # NA
+  ),
+  newspendingcat_W2 = factor(newspendingcat_W2,
+    levels = c(0, 1, 2),
+    labels = c("DK/No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+combined <- mutate(combined,
+  newspendingcat_W3 = case_when(
+    publicspend2_W3 == 4 | publicspend2_W3 == 3 ~ 0, # Combine DK and No spending
+    (publicspend2_W3 == 1 | publicspend2_W3 == 2) & (Publicspend3_fullcode_W3 %in% c(5, 6, 11, 12)) ~ 1, # Yes lots/little + correct project
+    (publicspend2_W3 == 1 | publicspend2_W3 == 2) & (Publicspend3_fullcode_W3 %in% c(17, 18, 19, 20, 1, 7, 13, 24, 25, 26, 2, 8, 14, 3, 4, 9, 10, 15, 16)) ~ 2, # Yes
+    Publicspend3_fullcode_W3 %in% c(21, 22, 23, 27) ~ NA_real_ # NA
+  ),
+  newspendingcat_W3 = factor(newspendingcat_W3,
+    levels = c(0, 1, 2),
+    labels = c("DK/No spend", "Yes spend + correct", "Yes spend + DK/wrong")
+  )
+)
+
+# Subset dataframe with only the data you need
+combined_subset <- combined %>% dplyr::select(ID, eurefid1_W1, eurefid1_W2, eurefid1_W3, newspendingcat_W1, newspendingcat_W2, newspendingcat_W3)
+
+# Lengthen
+combined_subset_long <- long_panel(combined_subset, prefix = "_W", begin = 1, end = 3, label_location = "end")
+
+# Binaries
+combined_subset_long <- mutate(combined_subset_long,
+  remain = case_when(
+    eurefid1 == "Remainer" ~ 1,
+    TRUE ~ 0
+  )
+)
+
+combined_subset_long <- mutate(combined_subset_long,
+  leave = case_when(
+    eurefid1 == "Leaver" ~ 1,
+    TRUE ~ 0
+  )
+)
+
+combined_subset_long <- mutate(combined_subset_long,
+  yes_correct = case_when(
+    newspendingcat == "Yes spend + correct" ~ 1,
+    TRUE ~ 0
+  )
+)
+
+combined_subset_long <- mutate(combined_subset_long,
+  yes_wrong = case_when(
+    newspendingcat == "Yes spend + DK/wrong" ~ 1,
+    TRUE ~ 0
+  )
+)
+
+# Lagging variables
+# NA in first period
+lag1 <- combined_subset_long %>%
+  filter(!is.na(wave)) %>%
+  mutate(wave = wave + 1, lagged_newspendingcat = newspendingcat, newspendingcat = NULL)
+lag1 <- dplyr::select(lag1, ID, wave, lagged_newspendingcat)
+combined_subset_long <- combined_subset_long %>%
+  left_join(
+    lag1
+  )
+
+lag2 <- combined_subset_long %>%
+  filter(!is.na(wave)) %>%
+  mutate(wave = wave + 1, lagged_eurefid1 = eurefid1, eurefid1 = NULL)
+lag2 <- dplyr::select(lag2, ID, wave, lagged_eurefid1)
+combined_subset_long <- combined_subset_long %>%
+  left_join(
+    lag2
+  )
+
+
+# Panel models, whole panel
+# Controlling for previous values
+
+# Define reference cat
+combined_subset_long$eurefid1 <- relevel(combined_subset_long$eurefid1, ref = 3)
+combined_subset_long$newspendingcat <- relevel(combined_subset_long$newspendingcat, ref = 1)
+levels(combined_subset_long$eurefid1)
+levels(combined_subset_long$newspendingcat)
+
+# Brexit identity on spending category
+# Lagging DV
+multi1 <- multinom(newspendingcat ~ remain + leave + lagged_newspendingcat,
+  data = combined_subset_long,
+  na.action = na.omit
+)
+
+alpha <- summary(multi1)$coefficients / summary(multi1)$standard.errors
+abs(alpha)
+
+# P values
+p_values <- (1 - pnorm(abs(alpha))) * 2
+summary(multi1)
+p_values
+
+model_data <- na.omit(combined_subset_long[, c("newspendingcat", "remain", "leave", "lagged_newspendingcat")])
+N <- nrow(model_data)
+print(N)
+
+
+# Spending category on Brexit identity
+multi2 <- multinom(eurefid1 ~ yes_correct + yes_wrong + lagged_eurefid1,
+  data = combined_subset_long,
+  na.action = na.omit
+)
+
+alpha2 <- summary(multi2)$coefficients / summary(multi2)$standard.errors
+abs(alpha2)
+
+p_values2 <- (1 - pnorm(abs(alpha2))) * 2
+
+summary(multi2)
+p_values2
+
+model_data2 <- na.omit(combined_subset_long[, c("yes_correct", "yes_wrong", "eurefid1", "lagged_eurefid1")])
+N2 <- nrow(model_data2)
+print(N2)
+```
+
+<br>
+
+# Levelling up
+
+<br>
+
+```{r}
+# Appendix 6
+# Party support
+# Wave 2
+
+part_all_past_multi_pc_2km <- multinom(part_factor ~ total_spending_LUF_1and2_2km_log1p + total_spending_CRF_2km_log1p + urban + tfringe,
+  data = combined,
+  na.action = na.omit
+)
+
+modelsummary(part_all_past_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Partisan identity, levelling up spending (2km limit)",
+  output = "gt"
+)
+```
+
+```{r}
+# Appendix 6
+# Switches in party support
+# Changes w/ GE 2019
+
+# 2022
+
+# 2km
+# Conservative
+part_change_c_multi_pc_2km <- multinom(part_factor_change_con ~ total_spending_LUF_1and2_2km_log1p + total_spending_CRF_2km_log1p + urban + tfringe,
+  data = combinedcon,
+  na.action = na.omit
+)
+
+modelsummary(part_change_c_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Partisan identity change, levelling up spending - Con (2km limit) 2022",
+  output = "gt"
+)
+
+# Non Conservative
+part_change_nc_multi_pc_2km <- multinom(part_factor_change_noncon ~ total_spending_LUF_1and2_2km_log1p + total_spending_CRF_2km_log1p + urban + tfringe,
+  data = combinednoncon,
+  na.action = na.omit
+)
+
+modelsummary(part_change_nc_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - non-Con (2km limit) 2022",
+  output = "gt"
+)
+
+# Neither
+part_change_neith_multi_pc_2km <- multinom(part_factor_change_neither ~ total_spending_LUF_1and2_2km_log1p + total_spending_CRF_2km_log1p + urban + tfringe,
+  data = combinedneither_party,
+  na.action = na.omit
+)
+
+modelsummary(part_change_neith_multi_pc_2km,
+  stars = my_stars,
+  shape = statistic ~ model + response,
+  coef_rename = var_names,
+  title = "Brexit identity change - Neither (2km limit) 2022",
+  output = "gt"
+)
+```
