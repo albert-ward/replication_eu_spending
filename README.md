@@ -1,2 +1,2 @@
 # replication_eu_spending
-Replication materials for 'Does regional spending affect support for the EU?'
+Replication materials and dataset for 'Does regional spending affect support for the EU?'
