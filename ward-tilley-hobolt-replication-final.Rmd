@@ -1806,7 +1806,7 @@ modelsummary(brex_all_past_multi_pc_2km_RDP,
   output = "gt"
 )
 
-# Appendix 9 Multinom - past vote; excluding DNV
+# Appendix 9 Logit - past vote; excluding DNV
 # 2km
 brex_all_past_multi_pc_2km_dnv <- glm(brex_factor3 ~ total_spending_SFP_2km_log1p + total_spending_RDP_2km_log1p + urban + tfringe,
   data = combined,
